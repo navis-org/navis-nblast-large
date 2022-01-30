@@ -363,8 +363,8 @@ def nblast(query: Union[Dotprops, NeuronList],
                 # Add queries and target
                 this.append(query_dps[q],
                             downsampled=None if not smart else query_ds[q])
-                this.append(target_dps[q],
-                            downsampled=None if not smart else target_dps[q])
+                this.append(target_dps[t],
+                            downsampled=None if not smart else target_dps[t])
 
                 # Keep track of indices of queries and targets
                 this.queries = np.arange(len(q))
