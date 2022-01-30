@@ -169,9 +169,6 @@ class DiscBlaster(navis.nbl.nblast_funcs.NBlaster):
                 z[row_offset: row_offset + chunksize,
                   col_offset: col_offset + chunk.shape[1]] = chunk
 
-                values = z[row_offset: row_offset + chunksize,
-                           col_offset: col_offset + chunk.shape[1]]
-
                 row_offset += chunksize
 
         # If the last chunk has not been filled, we need to write the partial
@@ -197,6 +194,7 @@ def nblast(query: Union[Dotprops, NeuronList],
            limit_dist: Optional[Union[Literal['auto'], int, float]] = None,
            n_cores: int = os.cpu_count() // 2,
            dtype: Union[str, np.dtype] = 'float32',
+           return_frame: bool = False,
            progress: bool = True) -> pd.DataFrame:
     """NBLAST query against target neurons.
 
@@ -262,6 +260,8 @@ def nblast(query: Union[Dotprops, NeuronList],
                     matrices. In real-world scenarios 32 bit (single)- and
                     depending on the purpose even 16 bit (half) - are typically
                     sufficient.
+    return_frame :  bool
+                    Whether to return a Dask dataframe.
     progress :      bool
                     Whether to show progress bars.
 
@@ -275,10 +275,11 @@ def nblast(query: Union[Dotprops, NeuronList],
     Returns
     -------
     Dask DataFrame
-                    Note that the Dask DataFrame will be alphabetically ordered
-                    along both rows and columns. This will likely be different
-                    from the order in the query/target dotprops. The stored
-                    Zarr array will have the correct order though.
+                    Only if ``return_frame=True``. Note that the Dask DataFrame
+                    will be alphabetically ordered along both rows and columns.
+                    This will likely be different from the order in the
+                    query/target dotprops. The stored Zarr array will have the
+                    correct order though.
 
     """
     if isinstance(out, type(None)):
@@ -395,19 +396,16 @@ def nblast(query: Union[Dotprops, NeuronList],
 
             results = [f.result() for f in futures]
 
-        # For some reason we have to open the array again after writing to it
-        # from multiple processes - otherwise the values are out of order
-        z = zarr.open_array(out, mode='r')
+    if return_frame:
+        scores = dd.from_array(z, columns=target_dps.id)
+        scores.columns.name = 'target'
 
-    scores = dd.from_array(z, columns=target_dps.id)
-    scores.columns.name = 'target'
+        scores['query'] = dd.from_array(query_dps.id)
+        scores = scores.set_index('query')
+        # This aligns rows with columns after re-ordering
+        scores = scores[sorted(scores.columns)]
 
-    scores['query'] = dd.from_array(query_dps.id)
-    scores = scores.set_index('query')
-    # This aligns rows with columns after re-ordering
-    scores = scores[sorted(scores.columns)]
-
-    return scores
+        return scores
 
 
 def matches(query: Union[Dotprops, NeuronList],

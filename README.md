@@ -14,15 +14,23 @@ sets of neurons. Notably, we:
 ```python
 >>> import nblast
 >>> # `queries`/`targets` are navis.Dotprops
->>> scores = nblast.nblast(queries, targets, out='./nblast_results')
->>> # Write partitions to individual parquet files
->>> scores.to_parquet('./nblast_parquet')
->>> # Convert to in-memory pandas DataFrame
+>>> scores = nblast.nblast(queries, targets,
+...                        out='./nblast_results'  # where to store Zarr array with results
+...                        return_frame=True)  # default is `return_frame=False`
+>>> # Convert Dask to in-memory pandas DataFrame
 >>> scores = scores.compute()
 ```
 
-Note that the Zarr data (scores + meta data) `./nblast_results/` is not
-cleaned up automatically. 
+The scores (+ meta data) are stored in  `./nblast_results/`:
+
+```python
+>>> import zarr
+>>> # Open the array
+>>> z = zarr.open_array("./nblast_results/", mode="r")
+>>> # IDs of queries/targets are stored as attributes
+>>> z.attrs['queries']
+[5812980561, 5813056261, 1846312261, 2373845661, ...]
+```
 
 ## Notes
 
