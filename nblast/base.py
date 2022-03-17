@@ -112,7 +112,9 @@ class DiskBlaster(LargeBlaster):
     def multi_query_target(self, q_idx, t_idx,
                           chunksize=10,
                           scores='forward',
-                          smart=False):
+                          smart=False,
+                          smart_crit='percentile',
+                          smart_t=90):
         """BLAST multiple queries against multiple targets.
 
         Parameters
@@ -126,16 +128,20 @@ class DiskBlaster(LargeBlaster):
                             Which scores to return.
         smart :             bool
                             If True will run a pre-NBLAST on the downsampled
-                            dotprops and then only full NBLAST the top 10% for
-                            each query.
+                            dotprops and then only full NBLAST the top N for
+                            each query (see `smart_crit` and `smart_t`
+                            parameters).
 
         Returns
         -------
         None
 
         """
-        # Top 10% of neurons to take to full NBLAST
-        top_N = len(t_idx) // 10
+        # Determine top N of neurons to take to full NBLAST
+        if smart_crit == 'percentile':
+            top_N = max(1, len(t_idx) // (100 - smart_t))
+        elif smart_crit == 'N':
+            top_N = smart_t
 
         if utils.is_jupyter() and config.tqdm == config.tqdm_notebook:
             # Jupyter does not like the progress bar position for some reason
@@ -169,8 +175,14 @@ class DiskBlaster(LargeBlaster):
                     chunk[i % chunksize, k] = self.single_query_target_ds(q, t, scores=scores)
 
             if smart:
+                # Run full NBLAST for selected targets
+                if smart_crit != 'score':
+                    to_blast = np.argsort(chunk[i % chunksize])[-top_N:]
+                else:
+                    to_blast = np.where(chunk[i % chunksize] >= smart_t)[0]
+
                 # Run full NBLAST for the top 10%
-                for k in np.argsort(chunk[i % chunksize])[-top_N:]:
+                for k in to_blast:
                     chunk[i % chunksize, k] = self.single_query_target(q, t_idx[k], scores=scores)
 
             # Whenever a chunk is full, we need to write to the Zarr array
@@ -198,7 +210,9 @@ class SparseBlaster(LargeBlaster):
     def multi_query_target(self, q_idx, t_idx,
                           chunksize=10,
                           scores='forward',
-                          smart=False):
+                          smart=False,
+                          smart_crit='percentile',
+                          smart_t=90):
         """BLAST multiple queries against multiple targets.
 
         Parameters
@@ -212,16 +226,20 @@ class SparseBlaster(LargeBlaster):
                             Which scores to return.
         smart :             bool
                             If True will run a pre-NBLAST on the downsampled
-                            dotprops and then only full NBLAST the top 10% for
-                            each query.
+                            dotprops and then only full NBLAST the top N for
+                            each query (see `smart_crit` and `smart_t`
+                            parameters).
 
         Returns
         -------
         None
 
         """
-        # Top 10% of neurons to take to full NBLAST
-        top_N = len(t_idx) // 10
+        # Determine top N of neurons to take to full NBLAST
+        if smart_crit == 'percentile':
+            top_N = max(1, len(t_idx) // (100 - smart_t))
+        elif smart_crit == 'N':
+            top_N = smart_t
 
         if utils.is_jupyter() and config.tqdm == config.tqdm_notebook:
             # Jupyter does not like the progress bar position for some reason
@@ -259,8 +277,13 @@ class SparseBlaster(LargeBlaster):
                     this_t.append(t)
 
             if smart and len(this_scores):
-                # Run full NBLAST for the top 10%
-                for k in np.argsort(this_scores)[-top_N:]:
+                # Run full NBLAST for selected targets
+                if smart_crit != 'score':
+                    to_blast = np.argsort(this_scores)[-top_N:]
+                else:
+                    to_blast = np.where(np.array(this_scores) >= smart_t)[0]
+
+                for k in to_blast:
                     this_scores[k] = self.single_query_target(q, this_t[k], scores=scores)
             all_scores += this_scores
             all_coo += this_coo
@@ -285,6 +308,8 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
                               Literal['max']] = 'forward',
                 normalized: bool = True,
                 smart: bool = False,
+                smart_crit: str = 'percentile',
+                smart_t: str = 90,
                 use_alpha: bool = False,
                 smat: Optional[Union[str, pd.DataFrame]] = 'auto',
                 limit_dist: Optional[Union[Literal['auto'], int, float]] = None,
@@ -331,6 +356,14 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
     smart :         bool
                     If True, will NBLAST downsampled dotprops first and, for
                     each query, take only the top 10% forward for a full NBLAST.
+    smart_crit :    "percentile" | "score" | "N"
+                    Criterion for selecting query-target pairs for full NBLAST:
+                      - "percentile" runs full NBLAST on the ``t``-th percentile
+                      - "score" runs full NBLAST on all scores above ``t``
+                      - "N" runs full NBLAST on top ``t`` targets
+    smart_t :       int | float
+                    Determines for which pairs we will run a full NBLAST. See
+                    ``criterion`` parameter for details.
     use_alpha :     bool, optional
                     Emphasizes neurons' straight parts (backbone) over parts
                     that have lots of branches.
@@ -378,6 +411,8 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
                     correct order though.
 
     """
+    assert smart_crit in ('percentile', 'N', 'score')
+
     if isinstance(out, type(None)):
         raise ValueError('Must provide a output folder as `out`')
 
@@ -480,6 +515,8 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
         _ = this.multi_query_target(this.queries,
                                     this.targets,
                                     smart=smart,
+                                    smart_crit=smart_crit,
+                                    smart_t=smart_t,
                                     scores=scores)
     else:
         with ProcessPoolExecutor(max_workers=n_cores) as pool:
@@ -488,6 +525,8 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
                                    q_idx=this.queries,
                                    t_idx=this.targets,
                                    smart=smart,
+                                   smart_crit=smart_crit,
+                                   smart_t=smart_t,
                                    scores=scores) for this in nblasters]
 
             results = [f.result() for f in futures]
@@ -513,6 +552,8 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
                                 Literal['max']] = 'forward',
                   normalized: bool = True,
                   smart: bool = False,
+                  smart_crit: str = 'percentile',
+                  smart_t: str = 90,
                   use_alpha: bool = False,
                   smat: Optional[Union[str, pd.DataFrame]] = 'auto',
                   limit_dist: Optional[Union[Literal['auto'], int, float]] = None,
@@ -550,7 +591,16 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
                     Whether to return normalized NBLAST scores.
     smart :         bool
                     If True, will NBLAST downsampled dotprops first and, for
-                    each query, take only the top 10% forward for a full NBLAST.
+                    each query, take only the top 10% forward for a full NBLAST
+                    (see `smart_crit` and `smart_t` to fine tune that behaviour).
+    smart_crit :    "percentile" | "score" | "N"
+                    Criterion for selecting query-target pairs for full NBLAST:
+                      - "percentile" runs full NBLAST on the ``t``-th percentile
+                      - "score" runs full NBLAST on all scores above ``t``
+                      - "N" runs full NBLAST on top ``t`` targets
+    smart_t :       int | float
+                    Determines for which pairs we will run a full NBLAST. See
+                    ``criterion`` parameter for details.
     use_alpha :     bool, optional
                     Emphasizes neurons' straight parts (backbone) over parts
                     that have lots of branches.
@@ -592,6 +642,8 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
                     Where each column is a sparse COO-array.
 
     """
+    assert smart_crit in ('percentile', 'N', 'score')
+
     # Make sure we're working on NeuronLists
     query_dps = NeuronList(query)
     # We will shuffle to avoid having imbalanced loading of the NBLASTERs
@@ -672,6 +724,8 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
         data, coo = this.multi_query_target(this.queries,
                                               this.targets,
                                               smart=smart,
+                                              smart_crit=smart_crit,
+                                              smart_t=smart_t,
                                               scores=scores)
     else:
         with ProcessPoolExecutor(max_workers=n_cores) as pool:
@@ -680,6 +734,8 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
                                    q_idx=this.queries,
                                    t_idx=this.targets,
                                    smart=smart,
+                                   smart_crit=smart_crit,
+                                   smart_t=smart_t,
                                    scores=scores) for this in nblasters]
 
             results = [f.result() for f in futures]
