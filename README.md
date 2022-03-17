@@ -7,7 +7,7 @@ sets of neurons.
 
 At this point we offer two variants:
 
-## NBLAST on disk
+## 1. NBLAST to disk
 This implementation immediately writes scores to disk. Notably, we:
 
 1. Use [Zarr](https://zarr.readthedocs.io) to create an on-disk array which is then populated in parallel by the spawned NBLAST processes.
@@ -44,7 +44,7 @@ low. It does, however, introduce new dependencies and the returned Dask
 DataFrame is more difficult to handle than run-of-the-mill pandas DataFrames.
 
 
-## NBLAST to sparse matrix
+## 2. NBLAST to sparse matrix
 This implementation drops scores below a given threshold and stores results in
 a sparse matrix. This is useful if you don't care about low (say less than 0)
 scores.
