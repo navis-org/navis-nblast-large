@@ -27,7 +27,7 @@ Dotprops = navis.Dotprops
 NeuronList = navis.NeuronList
 
 
-class DiscBlaster(navis.nbl.nblast_funcs.NBlaster):
+class DiskBlaster(navis.nbl.nblast_funcs.NBlaster):
     def __init__(self, out, offset=(0, 0), *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.neurons_ds = []
@@ -180,22 +180,22 @@ class DiscBlaster(navis.nbl.nblast_funcs.NBlaster):
         return
 
 
-def nblast(query: Union[Dotprops, NeuronList],
-           target: Optional[str] = None,
-           out: str = None,
-           scores: Union[Literal['forward'],
-                         Literal['mean'],
-                         Literal['min'],
-                         Literal['max']] = 'forward',
-           normalized: bool = True,
-           smart: bool = False,
-           use_alpha: bool = False,
-           smat: Optional[Union[str, pd.DataFrame]] = 'auto',
-           limit_dist: Optional[Union[Literal['auto'], int, float]] = None,
-           n_cores: int = os.cpu_count() // 2,
-           dtype: Union[str, np.dtype] = 'float32',
-           return_frame: bool = False,
-           progress: bool = True) -> pd.DataFrame:
+def nblast_disk(query: Union[Dotprops, NeuronList],
+                target: Optional[str] = None,
+                out: str = None,
+                scores: Union[Literal['forward'],
+                              Literal['mean'],
+                              Literal['min'],
+                              Literal['max']] = 'forward',
+                normalized: bool = True,
+                smart: bool = False,
+                use_alpha: bool = False,
+                smat: Optional[Union[str, pd.DataFrame]] = 'auto',
+                limit_dist: Optional[Union[Literal['auto'], int, float]] = None,
+                n_cores: int = os.cpu_count() // 2,
+                dtype: Union[str, np.dtype] = 'float32',
+                return_frame: bool = False,
+                progress: bool = True) -> pd.DataFrame:
     """NBLAST query against target neurons.
 
     Parameters
@@ -352,7 +352,7 @@ def nblast(query: Union[Dotprops, NeuronList],
             offset[1] = 0
             for t in np.array_split(target_idx, n_cols):
                 # Initialize NBlaster
-                this = DiscBlaster(use_alpha=use_alpha,
+                this = DiskBlaster(use_alpha=use_alpha,
                                    normalized=normalized,
                                    smat=smat,
                                    limit_dist=limit_dist,

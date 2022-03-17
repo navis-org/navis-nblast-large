@@ -14,19 +14,19 @@ sets of neurons. Notably, we:
 ```python
 >>> import nblast
 >>> # `queries`/`targets` are navis.Dotprops
->>> scores = nblast.nblast(queries, targets,
-...                        out='./nblast_results'  # where to store Zarr array with results
-...                        return_frame=True)  # default is `return_frame=False`
+>>> scores = nblast.nblast_disk(queries, targets,
+...                             out='./nblast_results'  # where to store Zarr array with results
+...                             return_frame=True)      # default is `return_frame=False`
 >>> # Convert Dask to in-memory pandas DataFrame
 >>> scores = scores.compute()
 ```
 
-The scores (+ meta data) are stored in  `./nblast_results/`:
+The scores are stored as Zarr array in `./nblast_results/scores`:
 
 ```python
 >>> import zarr
 >>> # Open the array
->>> z = zarr.open_array("./nblast_results/", mode="r")
+>>> z = zarr.open_array("./nblast_results/scores", mode="r")
 >>> # IDs of queries/targets are stored as attributes
 >>> z.attrs['queries']
 [5812980561, 5813056261, 1846312261, 2373845661, ...]
@@ -38,7 +38,6 @@ The scores (+ meta data) are stored in  `./nblast_results/`:
 Because Zarr has a very easy to use interface for coordinating parallel writes.
 
 ### Is this slower than the original navis implementation?
-Not as far as I can tell: the overhead from using Zarr/Dask is surprisingly low
-as best as I can tell. It does, however, introduce new dependencies and the
-returned Dask DataFrame is more difficult to handle than a normal
-pandas DataFrame.
+Not as far as I can tell: the overhead from using Zarr/Dask appears surprisingly
+low. It does, however, introduce new dependencies and the returned Dask
+DataFrame is more difficult to handle than a normal pandas DataFrame.
