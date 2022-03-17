@@ -53,6 +53,13 @@ scores.
 >>> from nblast import nblast_sparse
 >>> # `queries`/`targets` are navis.Dotprops
 >>> scores = nblast_sparse(queries, targets, threshold=0)
+>>> scores.dtypes
+603270961     Sparse[float32, nan]
+2312333561    Sparse[float32, nan]
+1934410061    Sparse[float32, nan]
+...
+>>> scores.sparse.density
+0.05122
 ```
 
 `scores` is a pandas DataFrame where each column is a sparse array. It will,
