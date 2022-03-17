@@ -646,6 +646,13 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
     pandas.DataFrame
                     Where each column is a sparse COO-array.
 
+    If `return_scipy=True`:
+
+    scores :        scipy.sparse.coo_array
+                    Sparse array in COOrdinate format.
+    index :         np.array
+    columns :       np.array
+
     """
     assert smart_crit in ('percentile', 'N', 'score')
 

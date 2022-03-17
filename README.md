@@ -65,4 +65,6 @@ scores.
 `scores` is a pandas DataFrame where each column is a sparse array. It will,
 in many ways, handle like a normal DataFrame. See the
 [docs](https://pandas.pydata.org/pandas-docs/stable/user_guide/sparse.html) for
-details.
+details. As things stand, you will have to convert the DataFrame dense
+(`scores.sparse.to_dense()`) in order to save it to disk (e.q. as feather or
+parquet) unless you want to use pickle.
