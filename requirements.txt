@@ -2,3 +2,4 @@ dask
 zarr
 navis
 pykdtree
+scipy>=1.8.0
