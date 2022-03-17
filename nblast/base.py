@@ -328,7 +328,7 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
     target :        Dotprops | NeuronList, optional
                     Target neuron(s) to NBLAST against. Neurons should be in
                     microns as NBLAST is optimized for that and have
-                    similar sampling resolutions. If not provided, will NBLAST
+                    similar sampling resolutions. If ``None``, will NBLAST
                     queries against themselves.
     out :           Path-like
                     A folder where to store the Zarr array (and some supporting
@@ -559,6 +559,7 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
                   limit_dist: Optional[Union[Literal['auto'], int, float]] = None,
                   n_cores: int = os.cpu_count() // 2,
                   dtype: Union[str, np.dtype] = 'float32',
+                  return_scipy: bool = False,
                   progress: bool = True) -> pd.DataFrame:
     """NBLAST query against target neurons and store results as sparse matrix.
 
@@ -571,7 +572,7 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
     target :        Dotprops | NeuronList, optional
                     Target neuron(s) to NBLAST against. Neurons should be in
                     microns as NBLAST is optimized for that and have
-                    similar sampling resolutions. If not provided, will NBLAST
+                    similar sampling resolutions. If ``None``, will NBLAST
                     queries against themselves.
     threshold :     float
                     NBLAST scores below this will be ignored and not stored.
@@ -626,6 +627,10 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
                     matrices. In real-world scenarios 32 bit (single)- and
                     depending on the purpose even 16 bit (half) - are typically
                     sufficient.
+    return_scipy :  bool
+                    If True, will return a scipy sparse matrix (in COO format)
+                    with the scores, and separate arrays with indices and
+                    columns.
     progress :      bool
                     Whether to show progress bars.
 
@@ -743,7 +748,10 @@ def nblast_sparse(query: Union[Dotprops, NeuronList],
             data = np.concatenate([r[0] for r in results], dtype=dtype)
             coo = np.vstack([r[1] for r in results])
 
-    scores = sp.csc_array((data, (coo[:, 0], coo[:, 1])))
+    scores = sp.coo_array((data, (coo[:, 0], coo[:, 1])))
+
+    if return_scipy:
+        return scores, query_dps.id, target_dps.id
 
     scores = pd.DataFrame.sparse.from_spmatrix(scores,
                                                index=query_dps.id,
