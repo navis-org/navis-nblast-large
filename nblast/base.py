@@ -305,6 +305,8 @@ class SparseBlaster(LargeBlaster):
 def nblast_disk(query: Union[Dotprops, NeuronList],
                 target: Optional[str] = None,
                 out: str = None,
+                exists_ok: Union[bool,
+                                 Literal['resume']] = False,
                 scores: Union[Literal['forward'],
                               Literal['mean'],
                               Literal['min'],
@@ -343,14 +345,20 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
                       - `{out}/scores.sync` contains
                     Importantly, these are not cleaned up automatically -
                     you have to remove the files manually when you're done with
-                    the results! Also note that any existing Zarr array in
-                    `{out}/scores` are overwritten.
+                    the results!
+    exists_ok :     False | True | "resume"
+                    What to do if `{out}/scores` already exists:
+                      - `False` (default) will raise an exception
+                      - `True` will overwrite existing scores
+                      - `"resume"` will try to use the existing array and fill
+                        in only missing values. This is useful if the NBLAST had
+                        previously crashed.
     scores :        'forward' | 'mean' | 'min' | 'max'
                     Determines the final scores:
                       - 'forward' (default) returns query->target scores
                       - 'mean' returns the mean of query->target and
                         target->query scores
-                      - 'min' returns the minium between query->target and
+                      - 'min' returns the minimum between query->target and
                         target->query scores
                       - 'max' returns the maximum between query->target and
                         target->query scores
@@ -358,7 +366,8 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
                     Whether to return normalized NBLAST scores.
     smart :         bool
                     If True, will NBLAST downsampled dotprops first and, for
-                    each query, take only the top 10% forward for a full NBLAST.
+                    each query, take only the top X hits forward for a full
+                    NBLAST (see `smart_crit` and `smart_t` parameters).
     smart_crit :    "percentile" | "score" | "N"
                     Criterion for selecting query-target pairs for full NBLAST:
                       - "percentile" runs full NBLAST on the ``t``-th percentile
@@ -410,11 +419,11 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
                     Only if ``return_frame=True``. Note that the Dask DataFrame
                     will be alphabetically ordered along both rows and columns.
                     This will likely be different from the order in the
-                    query/target dotprops. The stored Zarr array will have the
-                    correct order though.
+                    query/target dotprops.
 
     """
     assert smart_crit in ('percentile', 'N', 'score')
+    assert exists_ok in (True, False, 'resume')
 
     if isinstance(out, type(None)):
         raise ValueError('Must provide a output folder as `out`')
@@ -459,22 +468,42 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
 
     # Prepare output directory
     out = Path(out).expanduser().absolute() / 'scores'
+
     lockfile = Path(f'{out}.sync')
     synchronizer = zarr.ProcessSynchronizer(lockfile)
-    z = zarr.open_array(out, mode='w', shape=(len(query_dps), len(target_dps)),
-                        chunks=True,  # (1000, 1000),
-                        synchronizer=synchronizer,
-                        dtype=dtype)
+    skip = []
+    if out.exists() and not exists_ok:
+        raise FileExistsError(f'Scores array already exists: {out}. Either '
+                              'remove manually, or set `exists_ok=True` '
+                              'to overwrite or `exists_ok="resume" to try '
+                              'to re-use existing results.')
+    elif out.exists() and exists_ok == 'resume':
+        z = zarr.open_array(out, mode='r+',
+                            chunks=True,  # (1000, 1000),
+                            synchronizer=synchronizer)
+        dtype = str(z.dtype)  # existing dtype overwrites desired dtype
+        req_shape = (len(query_dps), len(target_dps))
+        if z.shape != req_shape:
+            raise ValueError('Unable to re-use existing zarr array: shape is '
+                             f'{z.shape} instead of {req_shape}')
+        if not all(np.array(z.attrs['queries']) == query_dps.id):
+            raise ValueError('Unable to re-use existing zarr array: '
+                             'queries (or their order) are different')
+        if not all(np.array(z.attrs['targets']) == target_dps.id):
+            raise ValueError('Unable to re-use existing zarr array: '
+                             'targets (or their order) are different')
 
-    try:
+        # Check which rows we can skip
+        for i in range(len(z)):
+            if all(z[i, :] != 0):
+                skip.append(i)
+    else:
+        z = zarr.open_array(out, mode='w', shape=(len(query_dps), len(target_dps)),
+                            chunks=True,  # (1000, 1000),
+                            synchronizer=synchronizer,
+                            dtype=dtype)
         z.attrs['queries'] = query_dps.id.tolist()
-    except BaseException:
-        logging.warning('Failed to write query IDs to Zarr array as attribute')
-
-    try:
         z.attrs['targets'] = target_dps.id.tolist()
-    except BaseException:
-        logging.warning('Failed to write target IDs to Zarr array as attribute')
 
     nblasters = []
     with config.tqdm(desc='Preparing',
@@ -486,6 +515,21 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
         offset = [0, 0]
         for q in np.array_split(query_idx, n_rows):
             offset[1] = 0
+
+            # Check if this batch has any rows that we can skip
+            to_skip = q[np.isin(q, skip)]
+            q = q[~np.isin(q, skip)]
+
+            # If any rows are skipped, add those to the offset
+            # Note that only works if we only ever skip the first N rows
+            if len(to_skip):
+                offset[0] += len(to_skip)
+
+            # If this entire chunk can be skipped just continue
+            if not len(q):
+                pbar.update(n_cols)
+                continue
+
             for t in np.array_split(target_idx, n_cols):
                 # Initialize NBlaster
                 this = DiskBlaster(use_alpha=use_alpha,
@@ -517,12 +561,13 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
 
     # If only one core, we don't need to break out the multiprocessing
     if n_cores == 1:
-        _ = this.multi_query_target(this.queries,
-                                    this.targets,
-                                    smart=smart,
-                                    smart_crit=smart_crit,
-                                    smart_t=smart_t,
-                                    scores=scores)
+        if len(nblasters):
+            _ = this.multi_query_target(this.queries,
+                                        this.targets,
+                                        smart=smart,
+                                        smart_crit=smart_crit,
+                                        smart_t=smart_t,
+                                        scores=scores)
     else:
         with ProcessPoolExecutor(max_workers=n_cores) as pool:
             # Each nblaster is passed to its own process
