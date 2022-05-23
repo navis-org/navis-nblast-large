@@ -28,6 +28,9 @@ Dotprops = navis.Dotprops
 NeuronList = navis.NeuronList
 
 
+__all__ = ['nblast_disk', 'nblast_sparse']
+
+
 class LargeBlaster(navis.nbl.nblast_funcs.NBlaster):
     """Base class for large NBLASTs."""
 
