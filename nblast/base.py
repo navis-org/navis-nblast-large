@@ -422,6 +422,7 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
     # Make sure we're working on NeuronLists
     query_dps = NeuronList(query)
     # We will shuffle to avoid having imbalanced loading of the NBLASTERs
+    random.seed(1985)
     random.shuffle(query_dps.neurons)
 
     if smart:
@@ -437,6 +438,7 @@ def nblast_disk(query: Union[Dotprops, NeuronList],
         target, target_dps, target_ds = query, query_dps, query_ds
     else:
         target_dps = NeuronList(target)
+        random.seed(1985)
         random.shuffle(target_dps.neurons)
 
         if smart:
